@@ -242,18 +242,23 @@ func TestConcurrentReaderReadRepeatAfterError(t *testing.T) {
 		totalBytes: int64(len(s3Client.Data)),
 	}
 
+	// The reader streams: leading successfully-downloaded parts may be
+	// returned before the failed part's error surfaces on a later Read.
 	buf := make([]byte, 4)
-	_, err := r.Read(buf)
-	if err == nil {
-		t.Fatal("expected first read to return an error")
+	var err error
+	for err == nil {
+		_, err = r.Read(buf)
+	}
+	if err == io.EOF {
+		t.Fatal("expected read to return an error")
 	}
 	if !errors.Is(err, r.getErr()) {
-		t.Fatalf("expected first read to return stored error, got %v and stored %v", err, r.getErr())
+		t.Fatalf("expected read to return stored error, got %v and stored %v", err, r.getErr())
 	}
 
-	firstReadInvocations := s3Client.GetObjectInvocations
-	if firstReadInvocations != 2 {
-		t.Fatalf("expected first read to schedule 2 GetObject calls, got %d", firstReadInvocations)
+	errorReadInvocations := s3Client.GetObjectInvocations
+	if errorReadInvocations != 2 {
+		t.Fatalf("expected 2 GetObject calls before the error surfaced, got %d", errorReadInvocations)
 	}
 
 	_, err = r.Read(buf)
@@ -261,7 +266,7 @@ func TestConcurrentReaderReadRepeatAfterError(t *testing.T) {
 		t.Fatalf("expected repeated read to return stored error, got %v and stored %v", err, r.getErr())
 	}
 
-	if got := s3Client.GetObjectInvocations; got != firstReadInvocations {
-		t.Fatalf("expected repeated read not to schedule more downloads, got %d GetObject calls after %d on first read", got, firstReadInvocations)
+	if got := s3Client.GetObjectInvocations; got != errorReadInvocations {
+		t.Fatalf("expected repeated read not to schedule more downloads, got %d GetObject calls after %d when the error surfaced", got, errorReadInvocations)
 	}
 }
